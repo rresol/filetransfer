@@ -8,6 +8,51 @@
 #include<stdlib.h>
 
 
+typedef uint8_t crc;
+#define WIDTH (8*sizeof(crc));
+#define TOPBIT(1<<(WIDTH-1));
+#define POLYNOMIAL 0x04C11DB7 //Truncated POLYNOMIAL for CRC 32 calculation.
+
+#define PCKT_LEN 10000
+unsigned char buffer[PCKT_LEN];
+
+struct frame{
+  unsigned char preamble[8], dest[6], src[6];
+  unsigned short int len;
+  unsigned char data[PCKT_LEN];
+  unsigned int crc;
+}
+
+
+void frame_init(struct frame* fr, char message[], unsigned int message_len)
+{
+  for(int i=0;i<7;i++)fr->preamble[i] = 0xAA;
+  fr->preamble[7] = 0xAB;
+
+  for(int i=0;i<strlen(message);i++)
+  {
+    fr->data[i] = message[i];
+  }
+
+  fr->len = total;
+
+  fr->dest[0]
+  fr->dest[1]
+  fr->dest[2]
+  fr->dest[3]
+  fr->dest[4]
+  fr->dest[5]
+
+  fr->src[0]
+  fr->src[1]
+  fr->src[2]
+  fr->src[3]
+  fr->src[4]
+  fr->src[5]
+
+}
+
+
 void error(char *msg)
 {
   perror(msg);
@@ -70,6 +115,45 @@ void server(int argc, char* argv[])
   close(newsockfd);
 }
 
+// Generating CRC Look up table to accelarate the CRC computation for each byte.
+void crcInit()
+{
+  int dividend;
+  crc remainder;
+  uint8_t bit;
+  for(dividend=0;dividend<256;dividend++)
+  {
+    remainder = dividend<<(WIDTH-8);
+    for(bit=8;bit>0;--bit)
+    {
+      if(remainder&TOPBIT)
+      {
+        remainder = (remainder<<1)^POLYNOMIAL;
+      }
+      else
+      {
+        remainder= (remainder<<1);
+      }
+    }
+    crcTable[dividend] = remainder;
+  }
+}
+
+//calculation of CRC using CRC look up table
+crc crcCalc(char message[], int message_len)
+{
+  int i;
+  crc remainder =0;
+  uint8_t data;
+  for(i=0;i<message_len;i++)
+  {
+    data = message[i]^(remainder>>(WIDTH-8));
+    remainder = crcTable[data]^(remainder<<8);
+  }
+  return remainder;
+}
+
+
 
 //client code to send data over network.
 void client(int argc, char* argv[])
@@ -123,6 +207,7 @@ void client(int argc, char* argv[])
   shutdown(sockfd,2);
   close(sockfd);
 }
+
 int main(int argc, char* argv[])
 {
 
