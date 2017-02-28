@@ -8,47 +8,99 @@
 #include<stdlib.h>
 
 
-typedef uint8_t crc;
-#define WIDTH (8*sizeof(crc));
-#define TOPBIT(1<<(WIDTH-1));
+typedef uint32_t crc;
+#define WIDTH (8*(sizeof(crc)))
+#define TOPBIT (1<<(WIDTH-1))
 #define POLYNOMIAL 0x04C11DB7 //Truncated POLYNOMIAL for CRC 32 calculation.
+crc crcTable[256];
 
 #define PCKT_LEN 10000
 unsigned char buffer[PCKT_LEN];
 
-struct frame{
+
+// Generating CRC Look up table to accelarate the CRC computation for each byte.
+void crcInit()
+{
+  int dividend;
+  crc remainder;
+  uint8_t bit;
+  for(dividend=0;dividend<256;dividend++)
+  {
+    remainder = dividend<<(WIDTH-8);
+    for(bit=8;bit>0;--bit)
+    {
+      if(remainder&TOPBIT)
+      {
+        remainder = (remainder<<1)^POLYNOMIAL;
+      }
+      else
+      {
+        remainder= (remainder<<1);
+      }
+    }
+    crcTable[dividend] = remainder;
+  }
+}
+
+//calculation of CRC using CRC look up table
+crc crcCalc(char message[], int message_len)
+{
+  int i;
+  crc remainder =0;
+  uint8_t data;
+  for(i=0;i<message_len;i++)
+  {
+    data = message[i]^(remainder>>(WIDTH-8));
+    remainder = crcTable[data]^(remainder<<8);
+  }
+  return remainder;
+}
+
+
+
+
+typedef struct frame{
   unsigned char preamble[8], dest[6], src[6];
   unsigned short int len;
   unsigned char data[PCKT_LEN];
   unsigned int crc;
-}
+}frame;
+
 
 
 void frame_init(struct frame* fr, char message[], unsigned int message_len)
 {
-  for(int i=0;i<7;i++)fr->preamble[i] = 0xAA;
+  int i;
+  for(i=0;i<7;i++)fr->preamble[i] = 0xAA;
   fr->preamble[7] = 0xAB;
 
-  for(int i=0;i<strlen(message);i++)
+  for(i=0;i<strlen(message);i++)
   {
     fr->data[i] = message[i];
   }
+  fr->crc = crcCalc(message,message_len);
+  unsigned int tempcrc = fr->crc;
+  fr->data[message_len] = tempcrc>>(WIDTH-8);
+  fr->data[message_len+1] = (tempcrc<<8)>>(WIDTH-8);
+  fr->data[message_len+2] = (tempcrc<<16)>>(WIDTH-8);
+  fr->data[message_len+3] = (tempcrc<<24)>>(WIDTH-8);
+  fr->data[message_len+4] = '\0';
 
-  fr->len = total;
+  fr->len  = message_len + 4;
 
-  fr->dest[0]
-  fr->dest[1]
-  fr->dest[2]
-  fr->dest[3]
-  fr->dest[4]
-  fr->dest[5]
+   fr->dest[0]=0x70;
+   fr->dest[1]=0xf3;
+   fr->dest[2]=0x95;
+   fr->dest[3]=0x14;
+   fr->dest[4]=0x56;
+   fr->dest[5]=0xb7;
 
-  fr->src[0]
-  fr->src[1]
-  fr->src[2]
-  fr->src[3]
-  fr->src[4]
-  fr->src[5]
+   fr->src[0]=0x80;
+   fr->src[1]=0xfd;
+   fr->src[2]=0x99;
+   fr->src[3]=0x54;
+   fr->src[4]=0x98;
+   fr->src[5]=0xc6;
 
 }
 
@@ -59,7 +111,23 @@ void error(char *msg)
   exit(-1);
 }
 
+
+void sender(int argc, char* argv[])
+{
+  frame* frame_to_be_sent = (frame* )malloc(sizeof(frame));
+  FILE *fp;
+  fp = fopen(argv[3],"r");
+  if(!fp)
+    error("Invalid File Path.\n");
+  unsigned int total = fread(buffer, sizeof(char), PCKT_LEN, fp);
+  fclose(fp);
+  frame_init(frame_to_be_sent, buffer, total);
+  client();
+}
+
+
 //Server code to recieve data and send the response at the end.
+
 void server(int argc, char* argv[])
 {
   int sockfd, newsockfd, portno, clilen, n;
@@ -115,47 +183,11 @@ void server(int argc, char* argv[])
   close(newsockfd);
 }
 
-// Generating CRC Look up table to accelarate the CRC computation for each byte.
-void crcInit()
-{
-  int dividend;
-  crc remainder;
-  uint8_t bit;
-  for(dividend=0;dividend<256;dividend++)
-  {
-    remainder = dividend<<(WIDTH-8);
-    for(bit=8;bit>0;--bit)
-    {
-      if(remainder&TOPBIT)
-      {
-        remainder = (remainder<<1)^POLYNOMIAL;
-      }
-      else
-      {
-        remainder= (remainder<<1);
-      }
-    }
-    crcTable[dividend] = remainder;
-  }
-}
-
-//calculation of CRC using CRC look up table
-crc crcCalc(char message[], int message_len)
-{
-  int i;
-  crc remainder =0;
-  uint8_t data;
-  for(i=0;i<message_len;i++)
-  {
-    data = message[i]^(remainder>>(WIDTH-8));
-    remainder = crcTable[data]^(remainder<<8);
-  }
-  return remainder;
-}
 
 
 
 //client code to send data over network.
+
 void client(int argc, char* argv[])
 {
   int sockfd, portno, n;
@@ -211,11 +243,13 @@ void client(int argc, char* argv[])
 int main(int argc, char* argv[])
 {
 
+  crcInit();
   if(argc==2){
-    server(argc,argv);}
+    //server(argc,argv);
+  }
   else if(argc==4){
-    printf("coming alpha...\n");
-    client(argc,argv);}
+    printf("connectin to the client...\n");
+    sender(argc,argv);}
   else{
     error("Invalid arguments! Aborting...");
   }
