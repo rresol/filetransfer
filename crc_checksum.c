@@ -17,6 +17,7 @@ crc crcTable[256];
 #define PCKT_LEN 10000
 unsigned char buffer[PCKT_LEN];
 
+#define PORTNO 5760
 
 // Generating CRC Look up table to accelarate the CRC computation for each byte.
 void crcInit()
@@ -68,7 +69,7 @@ typedef struct frame{
 
 
 
-void frame_init(struct frame* fr, char message[], unsigned int message_len)
+void frame_init(frame* fr, char message[], unsigned int message_len)
 {
   int i;
   for(i=0;i<7;i++)fr->preamble[i] = 0xAA;
@@ -112,22 +113,7 @@ void error(char *msg)
 }
 
 
-void sender(int argc, char* argv[])
-{
-  frame* frame_to_be_sent = (frame* )malloc(sizeof(frame));
-  FILE *fp;
-  fp = fopen(argv[3],"r");
-  if(!fp)
-    error("Invalid File Path.\n");
-  unsigned int total = fread(buffer, sizeof(char), PCKT_LEN, fp);
-  fclose(fp);
-  frame_init(frame_to_be_sent, buffer, total);
-  client();
-}
-
-
 //Server code to recieve data and send the response at the end.
-
 void server(int argc, char* argv[])
 {
   int sockfd, newsockfd, portno, clilen, n;
@@ -183,17 +169,13 @@ void server(int argc, char* argv[])
   close(newsockfd);
 }
 
-
-
-
-//client code to send data over network.
-
 void client(int argc, char* argv[])
 {
-  int sockfd, portno, n;
+
+  //This part deals with initalising variables required
+  int sockfd, portno, n; //sockfd is the file descriptor of the socket that will be connecting the socket.
   struct sockaddr_in serv_addr; //Address of the server to which we have to connect
   struct hostent *server; //pointing to struct of type hostent which is defined in netdb.h
-  char buffer[256];
 
 
   if(argc<3)
@@ -202,7 +184,29 @@ void client(int argc, char* argv[])
     exit(1);
   }
 
+  //This part deals with opening a file and storing the data contained in the file into an array.
+   FILE *fp;
+   fp = fopen("data.txt","r");
+   printf("Sending message please wait...\n");
 
+   char *buffer;
+
+   fseek(fp,0,SEEK_END);
+   int fsize = ftell(fp);
+   rewind(fp);
+
+   buffer = (char*)malloc((sizeof(char))*fsize)  ;
+   fread(buffer,1,fsize,fp);
+
+
+   //The data contained in the buffer array should now be converted to ehternet frame using the function frame_init
+   frame* send_fr = (frame*)malloc(sizeof(frame));
+   frame_init(send_fr,buffer,fsize);
+   int size = sizeof((unsigned char*)send_fr);
+   printf("%d %d\n",size,fsize);
+
+
+  //This part deals with opening a socket and connecting to the dest addresss to which it has to send the file also known as server;s address
   portno = atoi(argv[2]);
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if(sockfd<0)
@@ -220,19 +224,15 @@ void client(int argc, char* argv[])
   if (connect(sockfd,(struct sockaddr*) &serv_addr,sizeof(serv_addr)) < 0)
     error("ERROR connecting");
 
-  bzero(buffer,256);
 
-  FILE *fp;
-  fp = fopen("data.txt","r");
-  printf("Sending message please wait...\n");
 
-  while(fgets(buffer,255,fp)!=NULL)
-  {
-    n = write(sockfd,buffer,strlen(buffer));
-    memset(buffer, 0, 255);
-  }
+//  while(fgets(buffer,255,fp)!=NULL)
+  //{
+    //n = write(sockfd,(unsigned char*)send_fr,strlen(buffer));
+    //memset(buffer, 0, 255);
+  //}
 
-  printf("All the data have from the file %s have been sent\n", argv[3]);
+  printf("All the data  from the file %s have been sent\n", argv[3]);
   shutdown(sockfd,1);
   read(sockfd,buffer,38);
   printf("%s\n",buffer);
@@ -247,9 +247,9 @@ int main(int argc, char* argv[])
   if(argc==2){
     //server(argc,argv);
   }
-  else if(argc==4){
+  else if(argc==3){
     printf("connectin to the client...\n");
-    sender(argc,argv);}
+    client(argc,argv);}
   else{
     error("Invalid arguments! Aborting...");
   }
